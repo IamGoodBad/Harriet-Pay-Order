@@ -12,7 +12,7 @@ admin.initializeApp({
   databaseURL: 'https://' + process.env.GCP_PROJECT + '.firebaseio.com'
 });
 
-exports.createOrder = function createOrder(req, res) {
+exports.payOrder = function payOrder(req, res) {
 
   req.key = stripeKey
   req.deployment = deployment
@@ -21,8 +21,10 @@ exports.createOrder = function createOrder(req, res) {
   .then(registerStripe)
   .then(verifyIdToken)
   .then(getCustomerId)
-  .then(getCustomerItems)
-  .then(getCustomerItems)
+  .then(checkForAndAddToken)
+  .then(payCustomerOrder)
+  .then(checkForAndRemoveToken)
+  .then(removeCart)
   .then(function(request) {
     console.log(request);
     res.status(200).json(request.body)
@@ -64,28 +66,56 @@ var getCustomerId = function(request) {
   })
 }
 
-var getCustomerItems = function(request) {
-  return admin.database().ref().child('userCarts').child(request.body.decodedToken.uid).once('value').then(function(snapshot) {
-    request.body.orderObject = {currency: 'usd', customer: request.body.customerID, items: []}
-    snapshot.forEach(function(item) {
-      request.body.orderObject.items.push({
-        type: item.val().type,
-        quantity: item.val().quantity,
-        parent: item.key
+var checkForAndAddToken = function(request) {
+    if (request.body.paykey != undefined) {
+      return stripe.customers.createSource(request.body.customerID, {source: request.body.paykey})
+      .then(function(source) {
+        request.body.source = source
+        return Promise.resolve(request)
       })
-    })
+    } else {
+      return Promise.resolve(request)
+    }
+}
+
+var payCustomerOrder = function(request) {
+
+  var payObject = {customer: request.body.customerID}
+
+  if (request.body.source != undefined) {
+    payObject.source = request.body.source.id
+  }
+
+  return stripe.orders.pay(request.body.orderID, payObject)
+  .then(function(paidOrder) {
+    request.body.paidOrder = paidOrder
     return Promise.resolve(request)
-  }).catch(function(error) {
+  })
+  .catch(function(error) {
+    return Promise.reject(error)
+  });
+}
+
+var checkForAndRemoveToken = function(request) {
+  if (request.body.source != undefined) {
+      return stripe.customers.deleteSource(request.body.customerID, request.body.source.id)
+      .then(function(source) {
+        request.body.removedSource = source
+        return Promise.resolve(request)
+      })
+    } else {
+      return Promise.resolve(request)
+    }
+}
+
+var removeCart = function(request) {
+  return ref.child('userCarts').child(request.body.decodedToken.uid).set({})
+  .then(function() {
+    return Promise.resolve(request)
+  })
+  .catch(function(error) {
     return Promise.reject(error)
   })
 }
 
-var createCustomerOrder = function(request) {
-  return stripe.orders.create(request.body.orderObject)
-  .then(function(order) {
-    request.body.order = order
-    return Promise.resolve(request)
-  }).catch(function(error) {
-    return Promise.reject(error)
-  });
-}
+

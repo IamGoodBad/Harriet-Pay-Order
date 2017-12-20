@@ -1,6 +1,6 @@
 {
-  "name": "createOrder",
-  "description": "Create order object.",
+  "name": "payOrder",
+  "description": "Pay order with order ID.",
   "dependencies": {
     "firebase-admin": "^4.0.5",
     "@google-cloud/datastore": "^1.2.0",
